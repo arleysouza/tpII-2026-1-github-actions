@@ -1,0 +1,187 @@
+import { ConflictException, NotFoundException } from '@nestjs/common';
+import { DatabaseError } from 'pg';
+import { DatabaseService } from '../database/database.service';
+import { UsersService } from './users.service';
+
+// Simula a API encadeável usada pelo Drizzle nas consultas de leitura.
+function createSelectChain<T>(result: T) {
+  return {
+    from: jest.fn().mockReturnThis(),
+    where: jest.fn().mockReturnThis(),
+    limit: jest.fn().mockResolvedValue(result),
+    orderBy: jest.fn().mockResolvedValue(result),
+    innerJoin: jest.fn().mockReturnThis(),
+  };
+}
+
+// Simula insert(...).values(...).returning().
+function createInsertChain<T>(result: T, error?: unknown) {
+  const returning = error
+    ? jest.fn().mockRejectedValue(error)
+    : jest.fn().mockResolvedValue(result);
+  const values = jest.fn().mockReturnValue({ returning });
+
+  return {
+    chain: { values },
+    values,
+    returning,
+  };
+}
+
+// Simula update(...).set(...).where(...).returning().
+function createUpdateChain<T>(result: T, error?: unknown) {
+  const returning = error
+    ? jest.fn().mockRejectedValue(error)
+    : jest.fn().mockResolvedValue(result);
+  const where = jest.fn().mockReturnValue({ returning });
+  const set = jest.fn().mockReturnValue({ where });
+
+  return {
+    chain: { set },
+    set,
+    where,
+    returning,
+  };
+}
+
+// Simula delete(...).where(...).returning().
+function createDeleteChain<T>(result: T, error?: unknown) {
+  const returning = error
+    ? jest.fn().mockRejectedValue(error)
+    : jest.fn().mockResolvedValue(result);
+  const where = jest.fn().mockReturnValue({ returning });
+
+  return {
+    chain: { where },
+    where,
+    returning,
+  };
+}
+
+// Permite reproduzir os códigos de erro tratados pelo service.
+function createDatabaseError(code: string, message: string) {
+  const error = new DatabaseError(message, 0, 'error');
+  error.code = code;
+  return error;
+}
+
+describe('UsersService', () => {
+  let service: UsersService;
+  let db: {
+    select: jest.Mock;
+    insert: jest.Mock;
+    update: jest.Mock;
+    delete: jest.Mock;
+  };
+
+  beforeEach(() => {
+    // Cada teste recebe um "banco" novo para evitar acoplamento entre casos.
+    db = {
+      select: jest.fn(),
+      insert: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+    };
+
+    service = new UsersService({ db } as unknown as DatabaseService);
+  });
+
+  it('retorna o usuário criado quando o nome ainda não existe', async () => {
+    const dto = { name: 'Maria', email: 'maria@example.com' };
+    const createdUser = { idUser: 1, name: 'Maria', email: 'maria@example.com' };
+
+    db.select.mockReturnValueOnce(createSelectChain([]));
+
+    const insertQuery = createInsertChain([createdUser]);
+    db.insert.mockReturnValue(insertQuery.chain);
+
+    await expect(service.create(dto)).resolves.toEqual(createdUser);
+  });
+
+  it('envia nome e e-mail corretos ao inserir um usuário', async () => {
+    const dto = { name: 'Maria', email: 'maria@example.com' };
+    const createdUser = { idUser: 1, name: 'Maria', email: 'maria@example.com' };
+
+    db.select.mockReturnValueOnce(createSelectChain([]));
+
+    const insertQuery = createInsertChain([createdUser]);
+    db.insert.mockReturnValue(insertQuery.chain);
+
+    await service.create(dto);
+
+    expect(insertQuery.values).toHaveBeenCalledWith({
+      name: 'Maria',
+      email: 'maria@example.com',
+    });
+  });
+
+  it('traduz violação de unicidade ao criar usuário', async () => {
+    const dto = { name: 'Maria', email: 'maria@example.com' };
+    const duplicateError = createDatabaseError('23505', 'duplicate key');
+
+    db.select.mockReturnValueOnce(createSelectChain([]));
+
+    const insertQuery = createInsertChain([], duplicateError);
+    db.insert.mockReturnValue(insertQuery.chain);
+
+    await expect(service.create(dto)).rejects.toMatchObject({
+      name: ConflictException.name,
+      message: 'Já existe um usuário com esse nome.',
+    });
+  });
+
+  it('lança NotFoundException quando o usuário não existe', async () => {
+    db.select.mockReturnValueOnce(createSelectChain([]));
+
+    await expect(service.findOne(99)).rejects.toMatchObject({
+      name: NotFoundException.name,
+      message: 'Usuário 99 não encontrado.',
+    });
+  });
+
+  it('retorna o usuário atualizado quando recebe string vazia no e-mail', async () => {
+    const existingUser = { idUser: 1, name: 'Maria', email: 'maria@example.com' };
+    const updatedUser = { idUser: 1, name: 'Maria', email: null };
+
+    db.select
+      .mockReturnValueOnce(createSelectChain([existingUser]))
+      .mockReturnValueOnce(createSelectChain([]));
+
+    const updateQuery = createUpdateChain([updatedUser]);
+    db.update.mockReturnValue(updateQuery.chain);
+
+    await expect(service.update(1, { email: '' })).resolves.toEqual(updatedUser);
+  });
+
+  it('converte string vazia para null ao enviar a atualização do usuário', async () => {
+    const existingUser = { idUser: 1, name: 'Maria', email: 'maria@example.com' };
+    const updatedUser = { idUser: 1, name: 'Maria', email: null };
+
+    db.select
+      .mockReturnValueOnce(createSelectChain([existingUser]))
+      .mockReturnValueOnce(createSelectChain([]));
+
+    const updateQuery = createUpdateChain([updatedUser]);
+    db.update.mockReturnValue(updateQuery.chain);
+
+    await service.update(1, { email: '' });
+
+    expect(updateQuery.set).toHaveBeenCalledWith({
+      name: 'Maria',
+      email: null,
+    });
+  });
+
+  it('traduz a violação de chave estrangeira ao remover usuário com carros', async () => {
+    const foreignKeyError = createDatabaseError('23503', 'foreign key violation');
+    const deleteQuery = createDeleteChain([], foreignKeyError);
+
+    db.delete.mockReturnValue(deleteQuery.chain);
+
+    await expect(service.remove(1)).rejects.toMatchObject({
+      name: ConflictException.name,
+      message:
+        'Não é possível remover o usuário pois existem carros vinculados a ele.',
+    });
+  });
+});
