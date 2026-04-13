@@ -2,9 +2,13 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
+    branches: ["main"]
   pull_request:
+    branches: ["main"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}  # Garante apenas 1 execução por branch/workflow
+  cancel-in-progress: true                         # Cancela runs antigos se um novo push for feito
 
 jobs:
   test:
@@ -19,14 +23,24 @@ jobs:
       - name: Configura Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 22.x
           cache: npm
 
       - name: Instala dependencias
         run: npm ci
 
+      - name: Executa lint
+        run: npm run lint
+
       - name: Gera build
         run: npm run build
 
-      - name: Executa testes
-        run: npm test -- --runInBand
+      - name: Executa testes com cobertura
+        run: npm run test:cov -- --runInBand
+
+      - name: Upload coverage report
+        if: success() || failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage

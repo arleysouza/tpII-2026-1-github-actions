@@ -124,9 +124,12 @@ describe('CarsService', () => {
   it('não tenta inserir o carro quando o usuário informado não existe', async () => {
     db.select.mockReturnValueOnce(createSelectChain([]));
 
-    try {
-      await service.create({ idUser: 99, plate: 'ABC1D23' });
-    } catch {}
+    await expect(
+      service.create({ idUser: 99, plate: 'ABC1D23' }),
+    ).rejects.toMatchObject({
+      name: NotFoundException.name,
+      message: 'Usuário 99 não encontrado.',
+    });
 
     expect(db.insert).not.toHaveBeenCalled();
   });
