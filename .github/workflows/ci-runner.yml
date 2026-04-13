@@ -1,14 +1,11 @@
-name: CI
+name: CI Runner
 
 on:
-  push:
-    branches: ["main"]
-  pull_request:
-    branches: ["main"]
+  workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}  # Garante apenas 1 execução por branch/workflow
-  cancel-in-progress: true                         # Cancela runs antigos se um novo push for feito
+  group: ${{ github.workflow }}-${{ github.ref }}  # Garante apenas 1 execucao por branch/workflow
+  cancel-in-progress: true                         # Cancela runs antigos se um novo disparo for feito
 
 jobs:
   test:

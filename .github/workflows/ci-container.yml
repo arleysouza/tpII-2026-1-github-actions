@@ -1,0 +1,44 @@
+name: CI Container
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}  # Garante apenas 1 execucao por branch/workflow
+  cancel-in-progress: true                         # Cancela runs antigos se um novo disparo for feito
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container:
+      image: node:22-bookworm
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout do codigo
+        uses: actions/checkout@v6
+
+      - name: Exibe versoes do ambiente
+        run: |
+          node --version
+          npm --version
+
+      - name: Instala dependencias
+        run: npm ci
+
+      - name: Executa lint
+        run: npm run lint
+
+      - name: Gera build
+        run: npm run build
+
+      - name: Executa testes com cobertura
+        run: npm run test:cov -- --runInBand
+
+      - name: Upload coverage report
+        if: success() || failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: coverage-report-container
+          path: coverage
