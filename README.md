@@ -167,7 +167,7 @@ Na interface do GitHub:
 
 ## Como observar a execução
 
-Na aba `Actions`, o aluno pode analisar:
+Na aba `Actions`, você pode analisar:
 
 - qual workflow foi executado;
 - qual evento disparou a execução;
