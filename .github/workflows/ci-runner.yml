@@ -1,7 +1,10 @@
 name: CI Runner
 
 on:
-  workflow_dispatch:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}  # Garante apenas 1 execucao por branch/workflow
